@@ -1,27 +1,29 @@
 package com.musicplayerjykim.musicplayerapp.Fragment;
 
-import android.Manifest;
+import android.content.ContentUris;
 import android.content.Context;
-import android.content.pm.PackageManager;
+import android.content.Intent;
 import android.database.Cursor;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.BaseColumns;
 import android.provider.MediaStore;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.widget.CursorAdapter;
+import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.ListView;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
+import com.musicplayerjykim.musicplayerapp.Adapter.CursorRecyclerViewAdapter;
 import com.musicplayerjykim.musicplayerapp.R;
+import com.musicplayerjykim.musicplayerapp.Services.MusicService;
+
+import org.greenrobot.eventbus.EventBus;
 
 /**
  * Created by user on 2017-03-09.
@@ -29,34 +31,9 @@ import com.musicplayerjykim.musicplayerapp.R;
 
 public class SongFragment extends Fragment {
 
-    private OnFragmentInteractionListener mListener;
-    private ListView mListView;
-
-    String imageFile;
-
-    public SongFragment() {
-
-    }
-
+    @Nullable
     @Override
-    public void onAttach(Context context) {
-        super.onAttach(context);
-        if (context instanceof OnFragmentInteractionListener) {
-            mListener = (OnFragmentInteractionListener) context;
-        } else {
-            throw new RuntimeException(context.toString()
-                    + " must implement OnFragmentInteractionListener");
-        }
-    }
-
-    @Override
-    public void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-    }
-
-    @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_playlist, container, false);
     }
 
@@ -64,132 +41,90 @@ public class SongFragment extends Fragment {
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        mListView = (ListView) view.findViewById(R.id.playlist);
+        RecyclerView recyclerView = (RecyclerView) view.findViewById(R.id.recycler_view);
 
-        if (ContextCompat.checkSelfPermission(getActivity(),
-                Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
+        Cursor cursor = getActivity().getContentResolver()
+                .query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        null,
+                        null,
+                        null,
+                        null);
 
-            if (ActivityCompat.shouldShowRequestPermissionRationale(getActivity(),
-                    Manifest.permission.READ_EXTERNAL_STORAGE)) {
-
-                ActivityCompat.requestPermissions(getActivity(),
-                        new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                        1000);
-            } else {
-                ActivityCompat.requestPermissions(getActivity(),
-                        new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                        1000);
-            }
-        } else {
-
-
-        }
+        recyclerView.setAdapter(new SongRecyclerAdapter(getActivity(), cursor));
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public static class SongRecyclerAdapter extends CursorRecyclerViewAdapter<ViewHolder> {
 
-        switch (requestCode) {
-            case 1000: {
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        private Context mContext;
 
-                    Cursor cursor = getActivity().getContentResolver().query(
-                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                            null,
-                            null,
-                            null,
-                            null
-                    );
+        public SongRecyclerAdapter(Context context, Cursor cursor) {
+            super(context, cursor);
+            mContext = context;
+        }
 
-                    MusicCursorAdapter adapter = new MusicCursorAdapter (getActivity(), cursor);
-                    mListView.setAdapter(adapter);
+        @Override
+        public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(R.layout.item_play_list, parent, false));
+        }
 
-                } else {
+        @Override
+        public void onBindViewHolder(ViewHolder viewHolder, Cursor cursor) {
+            // content://audio/media/1"
+            final Uri uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(
+                    cursor.getColumnIndexOrThrow(BaseColumns._ID)));
 
-                    getActivity().finish();
+            final MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            retriever.setDataSource(mContext, uri);
+
+            // 미디어 정보
+            String title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+            String artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+
+            // 오디오 앨범 자켓 이미지
+            byte albumImage[] = retriever.getEmbeddedPicture();
+            if (null != albumImage) {
+                Glide.with(mContext).load(albumImage).into(viewHolder.mAlbumImage);
+            } else {
+                Glide.with(mContext).load(R.mipmap.ic_launcher).into(viewHolder.mAlbumImage);
+            }
+
+            viewHolder.mTitle.setText(title);
+            viewHolder.mArtist.setText(artist);
+
+            viewHolder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    /**
+                     * 음악 틀기
+                     * {@link com.example.myapplication.services.MusicService#playMusic(Uri)}
+                     */
+                    Intent intent = new Intent(mContext, MusicService.class);
+                    intent.setAction(MusicService.ACTION_PLAY);
+                    intent.putExtra("uri", uri);
+                    mContext.startService(intent);
+
+                    /**
+                     * 아래쪽 프래그먼트로 정보 쏘기
+                     * * {@link MusicControllerFragment#updateUI(MediaMetadataRetriever)}
+                     */
+                    EventBus.getDefault().post(retriever);
                 }
-                return;
-            }
-
-            // other 'case' lines to check for other
-            // permissions this app might request
-        }
-
-
-    }
-
-    @Override
-    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
-        super.onActivityCreated(savedInstanceState);
-
-    }
-
-    public void onButtonPressed(Uri uri) {
-        if (mListener != null) {
-            mListener.onFragmentInteraction(uri);
+            });
         }
     }
 
-    @Override
-    public void onDetach() {
-        super.onDetach();
-        mListener = null;
-    }
+    public static class ViewHolder extends RecyclerView.ViewHolder {
 
-        public interface OnFragmentInteractionListener {
-            void onFragmentInteraction(Uri uri);
-        }
+        ImageView mAlbumImage;
+        TextView mTitle;
+        TextView mArtist;
 
-    private class MusicCursorAdapter extends CursorAdapter {
+        public ViewHolder(View itemView) {
+            super(itemView);
 
-        public MusicCursorAdapter(Context context, Cursor c) {
-            super(context, c, false);
-        }
-        @Override
-        public View newView(Context context, final Cursor cursor, ViewGroup parent) {
-            final ViewHolder viewHolder = new ViewHolder();
-            View convertView = LayoutInflater.from(context)
-                    .inflate(R.layout.item_playlist, parent, false);
-
-            viewHolder.albumArtist = (TextView)convertView.findViewById(R.id.song_artist_text);
-            viewHolder.albumTitle = (TextView)convertView.findViewById(R.id.song_title_text);
-            viewHolder.albumImage = (ImageView)convertView.findViewById(R.id.song_image);
-
-            convertView.setTag(viewHolder);
-
-            return convertView;
-        }
-
-        @Override
-        public void bindView(View view, Context context, final Cursor cursor) {
-            final ViewHolder viewHolder = (ViewHolder) view.getTag();
-            viewHolder.albumArtist.setText(cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)));
-            viewHolder.albumTitle.setText(cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)));
-            Uri uri = Uri.parse(cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)));
-            Glide.with(SongFragment.this).load(getRealPathFromURI(uri)).into(viewHolder.albumImage);
-        }
-
-        private String getRealPathFromURI(Uri contentURI) {
-            String result;
-            Cursor cursor = getContext().getContentResolver().query(contentURI, null, null, null, null);
-            if (cursor == null) {
-                result = contentURI.getPath();
-            } else {
-                cursor.moveToFirst();
-                int idx = cursor.getColumnIndex(MediaStore.Audio.Media._ID);
-                result = cursor.getString(idx);
-                cursor.close();
-            }
-            return result;
-        }
-
-        private class ViewHolder {
-            ImageView albumImage;
-            TextView albumArtist;
-            TextView albumTitle;
+            mAlbumImage = (ImageView) itemView.findViewById(R.id.album_image_item);
+            mTitle = (TextView) itemView.findViewById(R.id.album_title_item);
+            mArtist = (TextView) itemView.findViewById(R.id.album_artist_item);
         }
     }
 }
