@@ -96,7 +96,7 @@ public class SongFragment extends Fragment {
                 public void onClick(View v) {
                     /**
                      * 음악 틀기
-                     * {@link com.example.myapplication.services.MusicService#playMusic(Uri)}
+                     * {@link com.musicplayerjykim.musicplayerapp.services.MusicService#playMusic(Uri)}
                      */
                     Intent intent = new Intent(mContext, MusicService.class);
                     intent.setAction(MusicService.ACTION_PLAY);
